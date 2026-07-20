@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "charliermarsh.ruff",
+    "astral-sh.ty",
+    "ms-python.debugpy",
+    "ms-python.vscode-python-envs",
+    "ms-toolsai.jupyter",
+    "tamasfe.even-better-toml"
+  ]
+}

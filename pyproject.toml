@@ -1,0 +1,55 @@
+[project]
+name = "motor-ingesta"
+version = "0.1.0"
+authors = [
+  { name = "Alejandro de Cora", email = "alejandrodecora@gmail.com" }
+]
+description = "Motor de ingesta para el curso de Spark"
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+	"Programming Language :: Python :: 3",
+	"Operating System :: OS Independent",
+]
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/adecora"
+Personal = "https://alejandrodecora.es"
+
+# https://docs.astral.sh/uv/concepts/projects/dependencies/#dependency-groups
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "loguru==0.7.3",
+]
+connect = [
+    "databricks-connect==18.2.*",
+]
+pyspark = [
+    "pyspark==4.1.2",
+    "pandas",
+    "python-dotenv",
+    "pytest==8.3.4",
+]
+
+# https://packaging.python.org/en/latest/tutorials/packaging-projects/#choosing-a-build-backend
+[build-system]
+requires = ["uv_build >= 0.11.23, <0.12.0"]
+build-backend = "uv_build"
+
+# connect y pyspark no pueden coexistir: databricks-connect incluye pyspark
+# https://docs.astral.sh/uv/concepts/resolution/#conflicting-optional-dependencies
+[tool.uv]
+conflicts = [
+    [
+        { group = "connect" },
+        { group = "pyspark" },
+    ],
+]
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+pythonpath = "src"
+# addopts = "--verbose --cov=motor-ingesta --cov-report html"

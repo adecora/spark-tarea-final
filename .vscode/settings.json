@@ -1,0 +1,46 @@
+{
+  // No mas dolores de cabeza windows-linux
+  "files.eol": "\n",
+
+  // Configuración de Python
+  "[python]": {
+    // Espacios en lugar de tabs
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      // "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff",
+  },
+  "python.terminal.activateEnvironment": true,
+  // Usa la varibles de entorno del fichero .env en la terminal de VSCode
+  // Como el .env reescribe la variable PATH, no es recomendable usarlo para activar el entorno virtual, ya que puede causar problemas con la terminal integrada de VSCode.
+  // "python.envFile": "${workspaceFolder}/.env",
+  // "python.terminal.useEnvFile": true,
+
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv-connect/bin/python",
+  "python.analysis.autoFormatStrings": true,
+  // Para que el linter y el autocompletado funcionen con el código dentro de spark_flights_etl
+  "python.analysis.extraPaths": [ "${workspaceFolder}/src" ],
+
+  // Configuración de Notebooks
+  "notebook.defaultFormatter": "charliermarsh.ruff",
+  "notebook.formatOnSave.enabled": true,
+  "notebook.insertFinalNewline": true,
+  "notebook.output.scrolling": true,
+  "notebook.lineNumbers": "on",
+  "notebook.scrolling.revealNextCellOnExecute": "none",
+  "notebook.codeActionsOnSave": {
+    "notebook.source.organizeImports": "explicit"
+  },
+  "notebook.editorOptionsCustomizations": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  },
+
+  // Configuración de Zen Mode
+  "zenMode.centerLayout": false,
+  "zenMode.hideLineNumbers": false,
+}
