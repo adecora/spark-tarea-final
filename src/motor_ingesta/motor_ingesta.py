@@ -1,25 +1,42 @@
-
-import json
-from pyspark.sql import DataFrame as DF, functions as F, SparkSession
+from pyspark.sql import DataFrame as DF
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 
 class MotorIngesta:
     """
-    Completar docstring
+    Clase que representa un motor de ingesta para procesar ficheros de tipo JSON, aplanando las columnas de tipo array y de tipo struct,
+    y seleccionando únicamente las columnas indicadas en el fichero de configuración, convirtiéndolas al tipo indicado en el mismo.
     """
+
     def __init__(self, config: dict):
         """
-        Completar docstring
-        :param config_file:
+        Inicializa un motor de ingesta para procesar ficheros de tipo JSON.
+        :param config: Diccionario que contiene los parámetros de configuración.
         """
         self.config = config
-        self.spark = SparkSession.builder.getOrCreate()
+
+        # Ver: https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession
+        try:
+            from databricks.connect import DatabricksSession
+
+            self.spark = DatabricksSession.builder.profile(
+                config.get("DATABRICKS_CONFIG_PROFILE")
+            ).getOrCreate()
+            self.spark.conf.set(
+                "spark.app.name", config.get("SPARK_APP_NAME", "Motor Ingesta")
+            )
+        except ImportError:
+            self.spark = SparkSession.builder.appName(
+                config.get("SPARK_APP_NAME", "Motor Ingesta")
+            ).getOrCreate()
 
     def ingesta_fichero(self, json_path: str) -> DF:
         """
-        Completar docstring
-        :param json_path:
-        :return:
+        Lee un fichero JSON, lo aplana y selecciona únicamente las columnas indicadas en el fichero de configuración, convirtiéndolas al tipo indicado en el mismo.
+        :param json_path: Ruta al fichero JSON que se desea procesar. Debe estar en DBFS si ejecutamos
+                          desde un notebook de Databricks, o en una ruta de nuestro portátil si usamos dbconnect
+        :return: DataFrame de Spark resultante tras aplanar y seleccionar las columnas indicadas.
         """
         # Leemos el JSON como DF, tratando de inferir el esquema, y luego lo aplanamos.
         # Por último nos quedamos con las columnas indicadas en el fichero de configuración,
@@ -33,13 +50,29 @@ class MotorIngesta:
         # Para incluir también el campo "comment" como metadatos de la columna, podemos hacer:
         # F.col(...).cast(...).alias(..., metadata={"comment": ...})
 
-        flights_day_df = spark.read....
+        flights_day_df = self.spark.read.json(json_path)
 
-        aplanado_df = ...
-        lista_obj_column = [ ... for diccionario in self.config["data_columns"] ]
-        resultado_df = aplanado_df.select(...)
-        return ...
+        aplanado_df = MotorIngesta.aplana_df(flights_day_df)
 
+        lista_obj_column = []
+        for columna in self.config["data_columns"]:
+            name = columna.get("name")
+            type = columna.get("type")
+            comment = columna.get("comment", "")
+
+            if type == "date":
+                lista_obj_column.append(
+                    F.to_date(F.col(name), columna.get("format", None)).alias(
+                        name, metadata={"comment": comment}
+                    )
+                )
+            else:
+                lista_obj_column.append(
+                    F.col(name).cast(type).alias(name, metadata={"comment": comment})
+                )
+
+        resultado_df = aplanado_df.select(*lista_obj_column)
+        return resultado_df
 
     @staticmethod
     def aplana_df(df: DF) -> DF:
@@ -58,13 +91,15 @@ class MotorIngesta:
         recurse = False
 
         for f in fields:
-            if f["type"].__class__.__name__ != "dict":
+            if not isinstance(f["type"], dict):
                 to_select.append(f["name"])
             else:
                 if f["type"]["type"] == "array":
                     to_select.append(F.explode(f["name"]).alias(f["name"]))
                     recurse = True
                 elif f["type"]["type"] == "struct":
+                    # OJO!!! Asumimos que los nombres de los campos anidados son todos
+                    # distintos entre sí, y no van a coincidir cuando sean aplanados.
                     to_select.append(f"{f['name']}.*")
                     recurse = True
 
