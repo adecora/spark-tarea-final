@@ -1,16 +1,19 @@
 from importlib.resources import files
 
-from pyspark.sql import SparkSession, DataFrame as DF, functions as F, Window
 import pandas as pd
+from pyspark.sql import DataFrame as DF
+from pyspark.sql import SparkSession, Window
+from pyspark.sql import functions as F
 
 
 def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
     """
-    Completa la documentación
-    :param spark:
-    :param df:
-    :param fichero_timezones:
-    :return:
+    Función que añade la hora de salida del vuelo en UTC a partir de las columnas FlightDate y DepTime, teniendo en cuenta la zona horaria del aeropuerto de salida del vuelo.
+
+    :param spark: Objeto SparkSession
+    :param df: DataFrame de vuelos con columnas FlightDate y DepTime
+    :param fichero_timezones: Ruta del fichero CSV que contiene los timezones de los aeropuertos
+    :return: DataFrame de vuelos con una nueva columna FlightTime de tipo timestamp, que contiene la hora de salida del vuelo en UTC
     """
 
     # Antes de empezar el ejercicio 2, debemos unir a los vuelos la zona horaria del aeropuerto de salida del vuelo,
@@ -22,8 +25,9 @@ def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
     timezones_pd = pd.read_csv(str(path_timezones))
     timezones_df = spark.createDataFrame(timezones_pd)
 
-    df_with_tz = ...
-
+    df_with_tz = df.join(
+        timezones_df, df["Origin"] == timezones_df["iata_code"], how="left"
+    )
 
     # ----------------------------------------
     # FUNCIÓN PARA EL EJERCICIO 2 (2 puntos)
@@ -51,7 +55,35 @@ def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
     #     que ya teníamos en FlightTime
     # (d) Antes de devolver el DF resultante, borra las columnas que estaban en timezones_df, así como la columna
     #     castedHour
-    df_with_flight_time = df_with_tz....
+
+    # Ojo!!! DepTime tiene 264 valores nulos
+    #  > df.filter(F.col("DepTime").isNull()).count()
+    # Para evitar problemas al convertir a timestamp, los llenamos con "0001" al crear la columna castedHour
+
+    # Ver:https://spark.apache.org/docs/latest/sql-ref-datetime-pattern.html
+    # Para el formato de fecha al usar F.to_timestamp(..., formato)
+    # - k clock-hour-of-day (1-24)
+
+    df_with_flight_time = (
+        df_with_tz.withColumn(
+            "castedHour",
+            F.when(F.col("DepTime").isNull(), F.lit("0001")).otherwise(
+                F.lpad(F.col("DepTime").cast("string"), 4, "0")
+            ),
+        )
+        .withColumn(
+            "FlightTime",
+            F.to_timestamp(
+                F.concat_ws(" ", F.col("FlightDate"), F.col("castedHour")),
+                "yyyy-MM-dd kkmm",
+            ),
+        )
+        .withColumn(
+            "FlightTime", F.to_utc_timestamp(F.col("FlightTime"), F.col("iana_tz"))
+        )
+        .drop(*timezones_df.columns, F.col("castedHour"))
+        .select(F.col("FlightTime"), *df.columns)
+    )
 
     return df_with_flight_time
 
@@ -77,7 +109,8 @@ def aniade_intervalos_por_aeropuerto(df: DF) -> DF:
     # El DF resultante de esta función debe ser idéntico al de entrada pero con 3 columnas nuevas añadidas por la
     # derecha, llamadas FlightTime_next, Airline_next y diff_next. Cualquier columna auxiliar debe borrarse.
 
-    w = ...     # ventana
-    df_with_next_flight = ...
+    # w = ...  # ventana
+    # df_with_next_flight = ...
 
-    return df_with_next_flight
+    # return df_with_next_flight
+    pass
