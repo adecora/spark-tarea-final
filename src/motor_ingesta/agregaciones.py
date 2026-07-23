@@ -8,7 +8,8 @@ from pyspark.sql import functions as F
 
 def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
     """
-    Función que añade la hora de salida del vuelo en UTC a partir de las columnas FlightDate y DepTime, teniendo en cuenta la zona horaria del aeropuerto de salida del vuelo.
+    Función que añade la hora de salida del vuelo en UTC a partir de las columnas FlightDate y DepTime,
+    teniendo en cuenta la zona horaria del aeropuerto de salida del vuelo.
 
     :param spark: Objeto SparkSession
     :param df: DataFrame de vuelos con columnas FlightDate y DepTime
@@ -109,9 +110,11 @@ def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
 
 def aniade_intervalos_por_aeropuerto(df: DF) -> DF:
     """
-    Completa la documentación
-    :param df:
-    :return:
+    Función que añade a cada vuelo la información del siguiente vuelo que despega del mismo aeropuerto de origen,
+    así como la diferencia en segundos entre ambos vuelos.
+
+    :param df: DataFrame de vuelos con columna FlightTime de tipo timestamp
+    :return: DataFrame con las columnas originales más FlightTime_next, Airline_next y diff_next
     """
     # ----------------------------------------
     # FUNCIÓN PARA EL EJERCICIO 3 (2 puntos)
@@ -128,8 +131,36 @@ def aniade_intervalos_por_aeropuerto(df: DF) -> DF:
     # El DF resultante de esta función debe ser idéntico al de entrada pero con 3 columnas nuevas añadidas por la
     # derecha, llamadas FlightTime_next, Airline_next y diff_next. Cualquier columna auxiliar debe borrarse.
 
-    # w = ...  # ventana
-    # df_with_next_flight = ...
+    w = Window.partitionBy("Origin").orderBy("FlightTime")
+    df_with_next_flight = (
+        df
+        # 1. Crear la columna de pares como struct {time, airline}
+        .withColumn(
+            "flight_info",
+            F.struct(
+                F.col("FlightTime").alias("time"),
+                F.col("Reporting_Airline").alias("airline"),
+            ),
+        )
+        # 2. Acceder al siguiente vuelo de la ventana
+        .withColumn("next_flight", F.lag("flight_info", -1).over(w))
+        # 3. Extraer los campos internos de la tupla como columnas y calcular la diferencia en segundos
+        .withColumns(
+            {
+                "FlightTime_next": F.col("next_flight.time"),
+                "Airline_next": F.col("next_flight.airline"),
+                "diff_next": (F.col("next_flight.time") - F.col("FlightTime")).cast(
+                    "long"
+                ),
+            }
+        )
+        # 4. Devolver el DF con las columnas originales y las 3 nuevas columnas añadidas por la derecha
+        .select(
+            *df.columns,
+            "FlightTime_next",
+            "Airline_next",
+            "diff_next",
+        )
+    )
 
-    # return df_with_next_flight
-    pass
+    return df_with_next_flight
