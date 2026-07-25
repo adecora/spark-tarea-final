@@ -59,50 +59,36 @@ def aniade_hora_utc(spark: SparkSession, df: DF) -> DF:
 
     # Ojo!!! DepTime tiene 264 valores nulos
     #  > df.filter(F.col("DepTime").isNull()).count()
+
     # Para evitar problemas al convertir a timestamp, los llenamos con "0000" al crear la columna castedHour
 
     # Ver:https://spark.apache.org/docs/latest/sql-ref-datetime-pattern.html
-    # Para el formato de fecha al usar F.to_timestamp(..., formato)
+    # Para el formato de fecha al usar F.try_to_timestamp(..., formato)
     # - H clock-hour-of-day (0-23)
-    # Para poder usar el formato "HHmm" hay que parchear un par de filas que tienen DepTime = 2400
+
+    # El dataset cuenta con un par de filas con valor DepTime = 2400 que están fuera del rango de horas válido
     #  > df.filter(condition=F.col("DepTime") == 2400).count()
-    # Se cambia a 0000 y se suma un día a FlightDate, para que hora sea correcta.
-
-    dep_time = F.coalesce(F.col("DepTime").cast("int"), F.lit(0))
-
-    clean_dep_time = F.when(dep_time == 2400, F.lit(0)).otherwise(dep_time)
-    clean_flight_date = F.when(
-        dep_time == 2400, F.date_add(F.col("FlightDate"), 1)
-    ).otherwise(F.col("FlightDate"))
 
     df_with_flight_time = (
         df_with_tz
-        # 1. Normalizar
-        #   - Limpieza de nulos en DepTime
-        #  - Limpieza de valores 2400 en DepTime y FlightDate
-        .withColumns(
-            {
-                "DepTime": clean_dep_time,
-                "FlightDate": clean_flight_date,
-            }
-        )
-        # 2. Generar Timesptamp de la hora de salida del vuelo
+        # 1. Generar Timesptamp de la hora de salida del vuelo, usar try_to_timestamp para evitar los casos en que
+        # DepTime es Null o 2400, que no se pueden convertir a timestamp. En esos casos, FlightTime será Null
         .withColumn("castedHour", F.lpad(F.col("DepTime").cast("string"), 4, "0"))
         .withColumn(
             "FlightTime",
-            F.to_timestamp(
+            F.try_to_timestamp(
                 F.concat_ws(" ", F.col("FlightDate"), F.col("castedHour")),
-                "yyyy-MM-dd HHmm",
+                F.lit("yyyy-MM-dd HHmm"),
             ),
         )
-        # 3. Convertir el timestamp a UTC
+        # 2. Convertir el timestamp a UTC
         .withColumn(
             "FlightTime", F.to_utc_timestamp(F.col("FlightTime"), F.col("iana_tz"))
         )
-        # 4. Limpiar columnas auxiliares
+        # 2. Limpiar columnas auxiliares
         .drop(*timezones_df.columns, F.col("castedHour"))
-        # 5. Devolver columnas en el orden original, con FlightTime al principio
-        .select(F.col("FlightTime"), *df.columns)
+        # 4. Devolver columnas en el orden original, con FlightTime al final
+        .select(*df.columns, F.col("FlightTime"))
     )
 
     return df_with_flight_time
@@ -131,7 +117,7 @@ def aniade_intervalos_por_aeropuerto(df: DF) -> DF:
     # El DF resultante de esta función debe ser idéntico al de entrada pero con 3 columnas nuevas añadidas por la
     # derecha, llamadas FlightTime_next, Airline_next y diff_next. Cualquier columna auxiliar debe borrarse.
 
-    w = Window.partitionBy("Origin").orderBy("FlightTime")
+    w = Window.partitionBy("Origin").orderBy(F.asc_nulls_last(F.col("FlightTime")))
     df_with_next_flight = (
         df
         # 1. Crear la columna de pares como struct {time, airline}
@@ -143,7 +129,7 @@ def aniade_intervalos_por_aeropuerto(df: DF) -> DF:
             ),
         )
         # 2. Acceder al siguiente vuelo de la ventana
-        .withColumn("next_flight", F.lag("flight_info", -1).over(w))
+        .withColumn("next_flight", F.lead("flight_info", 1).over(w))
         # 3. Extraer los campos internos de la tupla como columnas y calcular la diferencia en segundos
         .withColumns(
             {
