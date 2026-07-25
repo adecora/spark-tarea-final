@@ -20,15 +20,15 @@ class MotorIngesta:
         try:
             from databricks.connect import DatabricksSession
 
-            self.spark = DatabricksSession.builder.profile(
-                config.get("DATABRICKS_CONFIG_PROFILE")
+            self.spark: SparkSession = DatabricksSession.builder.profile(
+                self.config.get("DATABRICKS_CONFIG_PROFILE")
             ).getOrCreate()
             self.spark.conf.set(
-                "spark.app.name", config.get("SPARK_APP_NAME", "Motor Ingesta")
+                "spark.app.name", self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             )
         except ImportError:
             self.spark = SparkSession.builder.appName(
-                config.get("SPARK_APP_NAME", "Motor Ingesta")
+                self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             ).getOrCreate()
 
     def ingesta_fichero(self, json_path: str) -> DF:
