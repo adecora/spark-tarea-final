@@ -157,7 +157,7 @@ Las variables de entorno no se definen de forma explicita en [tests/conftest.py]
 
 ### Ejecución de test de forma local
 
-![Ejecución de tests](https://lh3.googleusercontent.com/d/19ASUFa99HLm9m9TOcGTyim_ISqBMsmWP)
+[Ejecución de tests](https://drive.google.com/file/d/1SnP9chfu239mTt6F3Wy3NfSMR6tiDhw4/view)
 
 ### Flujo de github actions
 
@@ -168,7 +168,7 @@ Las variables de entorno no se definen de forma explicita en [tests/conftest.py]
 
 ## Ejecución en Databricks
 
-![Ejecución del paquete en Databricks](https://lh3.googleusercontent.com/d/1vhoudM76YA5MwltC8E4sHFPJc6VCEtNI)
+[Ejecución del paquete en Databricks](https://drive.google.com/file/d/10e20RU9jiEXMCrT2lBAdMw2fX9gXhDRr/view)
 
 
 [^3]: [Recomendación de Azure para escribir código portable con Databricks Connect](https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession).
