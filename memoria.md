@@ -40,6 +40,14 @@ Se ha modernizado el esqueleto (*scaffolding*) del proyecto para adaptarlo a los
 3. **Build Backend:** Configuración de [`uv-build`](https://docs.astral.sh/uv/concepts/build-backend/#using-the-uv-build-backend) como [build backend](https://packaging.python.org/en/latest/tutorials/packaging-projects/#choosing-a-build-backend).
 4. **Gestión de Dependencias:**
   - El paquete define como dependencias principales `loguru` y `pandas`. Se ha omitido intencionadamente la declaración de una versión explícita de `pandas` para evitar conflictos, ya que el entorno de ejecución requiere `pyspark`, el cual ya gestiona su propia versión de `pandas`.
+  - **Instalación en entorno de Databricks:** Al instalar el paquete directamente en un *notebook* de Databricks, es necesario indicarlo explícitamente para evitar que sobrescriba las dependencias del propio *cluster*:
+
+    ```python
+    # Importante usar --no-deps para que no instale dependencias del entorno de Databricks
+    !pip install --no-deps --force-reinstall git+https://github.com/adecora/spark-tarea-final.git
+    !pip install loguru==0.7.3
+    ```
+
   - Se ha hecho uso de los [dependency-groups](https://packaging.python.org/en/latest/specifications/dependency-groups/#dependency-groups) para separar los distintos entornos de desarrollo:
     * `dev`: Dependencias comunes de desarrollo. Incluye `ipykernel` para permitir la [ejecución de notebooks de Jupyter directamente desde VS Code](https://docs.astral.sh/uv/guides/integration/jupyter/#using-jupyter-from-vs-code).
     * `connect`: Utiliza `databricks-connect` para el desarrollo remoto, conectándose al clúster de Databricks configurado en el archivo local `~/.databrickscfg`.
@@ -57,8 +65,8 @@ Se ha modernizado el esqueleto (*scaffolding*) del proyecto para adaptarlo a los
   $ UV_PROJECT_ENVIRONMENT=.venv-pyspark uv sync --no-default-groups --group dev --group pyspark
   ```
 
-5. **Gestión de Recursos Estáticos:** Se ha implementado el uso de la librería estándar `importlib.resources` para acceder de forma segura y empaquetable al archivo de zonas horarias ubicado en [`src/motor_ingesta/resources/timezones.csv`](src/motor_ingesta/resources/timezones.csv) [^2].
-6. **Ejecución de Pruebas:**
+1. **Gestión de Recursos Estáticos:** Se ha implementado el uso de la librería estándar `importlib.resources` para acceder de forma segura y empaquetable al archivo de zonas horarias ubicado en [`src/motor_ingesta/resources/timezones.csv`](src/motor_ingesta/resources/timezones.csv) [^2].
+2. **Ejecución de Pruebas:**
   Los tests unitarios se ejecutan sobre el entorno local de PySpark utilizando `pytest`:
 
   ```bash
@@ -143,14 +151,47 @@ Se ha modernizado el esqueleto (*scaffolding*) del proyecto para adaptarlo a los
   <!-- Ver: https://stackoverflow.com/a/77905860/32697703 -->
   ![Ejecución como módulo](https://lh3.googleusercontent.com/d/1N4xt_rzStojh8zMzhEfno6s1O8wxDPiN)
 
-### 5. Tests
+## Tests
 
-- Las variables de entorno no se definen de forma explicita en [tests/conftest.py](./tests/conftest.py) se importan del fichero **.env** con `load_dotenv()`.
+Las variables de entorno no se definen de forma explicita en [tests/conftest.py](./tests/conftest.py) se importan del fichero **.env** con `load_dotenv()`.
 
-#### Ejecución de test de forma local
+### Ejecución de test de forma local
 
 ![Ejecución de tests](https://lh3.googleusercontent.com/d/19ASUFa99HLm9m9TOcGTyim_ISqBMsmWP)
+
+### Flujo de github actions
+
+- Existe un flujo de [github actions](https://github.com/adecora/spark-tarea-final/actions) que lanza los tests con cada **push** al repo y publica los resultados de **coverage** en [codecov](https://app.codecov.io/github/adecora/spark-tarea-final/tree/master?search=&displayType=list)
+
+  ![Coverage publicado en codecov con tests implementados](https://lh3.googleusercontent.com/d/1NRWvUFh1CNHNfqYRlf7fLw19gaXot7DM)
+
+
+## Ejecución en Databricks
+
+![Ejecución del paquete en Databricks](https://lh3.googleusercontent.com/d/1vhoudM76YA5MwltC8E4sHFPJc6VCEtNI)
 
 
 [^3]: [Recomendación de Azure para escribir código portable con Databricks Connect](https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession).
 [^4]: [Formatos de fecha y hora en spark](https://spark.apache.org/docs/latest/sql-ref-datetime-pattern.html).
+
+
+---
+[@title]: #
+[Source - https://stackoverflow.com/a/35760941]: #
+[Posted by Harmon, modified by community. See post 'Timeline' for change history]: #
+[Retrieved 2026-02-26, License - CC BY-SA 4.0]: #
+
+<footer style="width:100%; display:flex; justify-content:center; margin:3rem 0;">
+    <p align="center">
+      <a href="https://alejandrodecora.es/til" style="width:100%; display:flex; justify-content:center; text-decoration: none;">
+          Hecho con 💜 por
+          <!-- prettier-ignore -->
+          <svg viewBox="0 0 600 530" version="1.1" xmlns="http://www.w3.org/2000/svg" style="position: relative; top: 4px; height: 1.25em;">
+          <path
+            d="m135.72 44.03c66.496 49.921 138.02 151.14 164.28 205.46 26.262-54.316 97.782-155.54 164.28-205.46 47.98-36.021 125.72-63.892 125.72 24.795 0 17.712-10.155 148.79-16.111 170.07-20.703 73.984-96.144 92.854-163.25 81.433 117.3 19.964 147.14 86.092 82.697 152.22-122.39 125.59-175.91-31.511-189.63-71.766-2.514-7.3797-3.6904-10.832-3.7077-7.8964-0.0174-2.9357-1.1937 0.51669-3.7077 7.8964-13.714 40.255-67.233 197.36-189.63 71.766-64.444-66.128-34.605-132.26 82.697-152.22-67.108 11.421-142.55-7.4491-163.25-81.433-5.9562-21.282-16.111-152.36-16.111-170.07 0-88.687 77.742-60.816 125.72-24.795z"
+            fill="#1185fe" />
+          </svg>
+          <code>@vichelocrego</code>
+      </a>
+    </p>
+</footer>
