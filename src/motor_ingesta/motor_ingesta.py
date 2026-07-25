@@ -16,8 +16,8 @@ class MotorIngesta:
         """
         self.config = config
 
-        # Ver: https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession
-        try:
+
+        if self.config.get("EXECUTION_ENVIRONMENT", "local") == "databricks":
             from databricks.connect import DatabricksSession
 
             self.spark: SparkSession = DatabricksSession.builder.profile(
@@ -26,7 +26,7 @@ class MotorIngesta:
             self.spark.conf.set(
                 "spark.app.name", self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             )
-        except ImportError:
+        else:
             self.spark = SparkSession.builder.appName(
                 self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             ).getOrCreate()

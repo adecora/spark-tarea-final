@@ -22,8 +22,7 @@ class FlujoDiario:
         with Path(config_file).open("r") as f:
             self.config = json.load(f)
 
-        # Ver: https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession
-        try:
+        if self.config.get("EXECUTION_ENVIRONMENT", "local") == "databricks":
             from databricks.connect import DatabricksSession
 
             self.spark: SparkSession = DatabricksSession.builder.profile(
@@ -32,16 +31,17 @@ class FlujoDiario:
             self.spark.conf.set(
                 "spark.app.name", self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             )
-        except ImportError:
+        else:
             self.spark = SparkSession.builder.appName(
                 self.config.get("SPARK_APP_NAME", "Motor Ingesta")
             ).getOrCreate()
 
     def procesa_diario(self, data_file: str):
         """
-        Completa la documentación
+        Procesa un fichero JSON de vuelos del día, aplicando el motor de ingesta y las agregaciones necesarias,
+        y guardando el resultado en la tabla indicada en la configuración.
+
         :param data_file: Ruta al fichero JSON que contiene los datos de vuelos del día a procesar.
-        :return:
         """
 
         try:
@@ -126,20 +126,18 @@ class FlujoDiario:
                     .coalesce(self.config["output_partitions"])
                     .write.mode("overwrite")
                     .option("partitionOverwriteMode", "dynamic")
-                    .insertInto(self.config["output_table"])
+                    .insertInto(output_table)
                 )
-                logger.info(
-                    f"Tabla {self.config['output_table']} sobreescrita con éxito."
-                )
+                logger.info(f"Tabla {output_table} sobreescrita con éxito.")
             else:
                 (
                     df_with_next_flight.coalesce(self.config["output_partitions"])
                     .write.mode("overwrite")
                     # La tabla no existe, la creamos indicando la clave de partición
                     .partitionBy("FlightDate")
-                    .saveAsTable(self.config["output_table"])
+                    .saveAsTable(output_table)
                 )
-                logger.info(f"Tabla {self.config['output_table']} creada con éxito.")
+                logger.info(f"Tabla {output_table} creada con éxito.")
 
         except Exception as e:
             logger.error(f"No se pudo escribir la tabla del fichero {data_file}")
@@ -154,9 +152,20 @@ class FlujoDiario:
 
 
 if __name__ == "__main__":
-    # spark = SparkSession.builder.getOrCreate()  # sólo si lo ejecutas localmente
-    # flujo = FlujoDiario()
-    # flujo.procesa_diario()
+    import sys
 
-    # Recuerda que puedes crear el wheel ejecutando en la línea de comandos: python setup.py bdist_wheel
-    print("Boas from FlujoDiario")
+    from dotenv import load_dotenv
+
+    # Cargar variables de entorno desde el archivo .env
+    load_dotenv()
+
+    # Habilitar el soporte de Hive para persistir localmente los metadatos de las tablas entre sesiones.
+    spark = (
+        SparkSession.builder.enableHiveSupport().getOrCreate()
+    )  # sólo si lo ejecutas localmente
+
+    if len(sys.argv) != 3:
+        raise SystemExit("Uso: python flujo_diario.py <config_file> <data_file>")
+
+    flujo = FlujoDiario(sys.argv[1])
+    flujo.procesa_diario(sys.argv[2])
