@@ -1,33 +1,49 @@
 import json
 from datetime import timedelta
-from loguru import logger
+from pathlib import Path
 
-from pyspark.sql import SparkSession, functions as F
+from loguru import logger
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+from .agregaciones import aniade_hora_utc, aniade_intervalos_por_aeropuerto
+from .motor_ingesta import MotorIngesta
 
 
 class FlujoDiario:
-
     def __init__(self, config_file: str):
         """
-        Completa la documentación
-        :param config_file:
+        Inicializa un flujo diario de ingesta de datos, leyendo la configuración desde un fichero JSON.
+        :param config_file: Ruta al fichero JSON que contiene la configuración del flujo diario.
         """
         # Leer como diccionario el fichero json indicado en la ruta config_file, usando json.load(f) del paquete json
         # y almacenarlo en self.config. Además, crear la SparkSession si no existiese usando
         # SparkSession.builder.getOrCreate() que devolverá la sesión existente, o creará una nueva si no existe ninguna
+        with Path(config_file).open("r") as f:
+            self.config = json.load(f)
 
-        self.spark = None     # sustituye None por lo adecuado para recuperar la SparkSession existente o crear una
-        self.config = None    # sustituye None por lo adecuado para leer el fichero de config como diccionario
+        # Ver: https://docs.azure.cn/en-us/databricks/dev-tools/databricks-connect/python/examples#example-use-databrickssesssion-or-sparksession
+        try:
+            from databricks.connect import DatabricksSession
 
+            self.spark: SparkSession = DatabricksSession.builder.profile(
+                self.config.get("DATABRICKS_CONFIG_PROFILE")
+            ).getOrCreate()
+            self.spark.conf.set(
+                "spark.app.name", self.config.get("SPARK_APP_NAME", "Motor Ingesta")
+            )
+        except ImportError:
+            self.spark = SparkSession.builder.appName(
+                self.config.get("SPARK_APP_NAME", "Motor Ingesta")
+            ).getOrCreate()
 
     def procesa_diario(self, data_file: str):
         """
         Completa la documentación
-        :param data_file:
+        :param data_file: Ruta al fichero JSON que contiene los datos de vuelos del día a procesar.
         :return:
         """
 
-        # raise NotImplementedError("completa el código de esta función")   # borra esta línea cuando resuelvas
         try:
             # Procesamiento diario: crea un nuevo objeto motor de ingesta con self.config, invoca a ingesta_fichero,
             # después a las funciones que añaden columnas adicionales, y finalmente guarda el DF en la tabla indicada en
@@ -37,12 +53,14 @@ class FlujoDiario:
             # Conviene cachear el DF flights_df así como utilizar el número de particiones indicado en
             # config["output_partitions"]
 
-            motor_ingesta = ...
-            flights_df = ...
+            motor_ingesta = MotorIngesta(self.config)
+            flights_df = motor_ingesta.ingesta_fichero(data_file)
+
+            # Cachear el DF para evitar que se vuelva a leer el fichero JSON en cada transformación
+            flights_df.cache()
 
             # Paso 1. Invocamos al método para añadir la hora de salida UTC
-            flights_with_utc = ...                # reemplaza por la llamada adecuada
-
+            flights_with_utc = aniade_hora_utc(self.spark, flights_df)
 
             # -----------------------------
             #  CÓDIGO PARA EL EJERCICIO 4
@@ -52,48 +70,93 @@ class FlujoDiario:
             # obviar este código hasta llegar al ejercicio 4 del notebook
             dia_actual = flights_df.first().FlightDate
             dia_previo = dia_actual - timedelta(days=1)
-            try:
-                flights_previo = spark.read.table(...).where(F.col(...) == ...)
-                logger.info(f"Leída partición del día {dia_previo} con éxito")
-            except Exception as e:
-                logger.info(f"No se han podido leer datos del día {dia_previo}: {str(e)}")
-                flights_previo = None
+            output_table = self.config["output_table"]
 
-            if flights_previo:
+            try:
+                # Recuperar datos del día previo que no tengan FlightTime_next, información del vuelo siguiente
+                # pero si tenga FlightTime, información de la hora de salida del vuelo.
+                flights_previo = self.spark.read.table(output_table).where(
+                    F.col("FlightDate") == dia_previo
+                )
+
+                if flights_previo.isEmpty():
+                    flag_previo = False
+                    logger.info(
+                        f"No se han podido leer datos del día {dia_previo}: no existen datos"
+                    )
+                else:
+                    flag_previo = True
+                    logger.info(f"Leída partición del día {dia_previo} con éxito")
+
+            except Exception as e:
+                logger.info(
+                    f"No se han podido leer datos del día {dia_previo}: {str(e)}"
+                )
+                flag_previo = False
+
+            if flag_previo:
                 # añadir columnas a F.lit(None) haciendo cast al tipo adecuado de cada una, y unirlo con flights_previo.
                 # OJO: hacer select(flights_previo.columns) para tenerlas en el mismo orden antes de
                 # la unión, ya que la columna de partición se había ido al final al escribir
-
-                df_unido = ...
+                df_unido = flights_with_utc.unionByName(
+                    flights_previo.select(flights_with_utc.columns),
+                    allowMissingColumns=False,
+                )
                 # Spark no permite escribir en la misma tabla de la que estamos leyendo. Por eso salvamos
                 df_unido.write.mode("overwrite").saveAsTable("tabla_provisional")
                 df_unido = self.spark.read.table("tabla_provisional")
 
             else:
-                df_unido = flights_with_utc           # lo dejamos como está
+                df_unido = flights_with_utc  # lo dejamos como está
 
             # Paso 3. Invocamos al método para añadir información del vuelo siguiente
-            df_with_next_flight = ...
+            df_with_next_flight = aniade_intervalos_por_aeropuerto(df_unido)
 
             # Paso 4. Escribimos el DF en la tabla externa config["output_table"] con ubicación config["output_path"], con
             # el número de particiones indicado en config["output_partitions"]
-            # df_with_next_flight.....(...)..write.mode("overwrite").option("partitionOverwriteMode", "dynamic")....
-            df_with_next_flight\
-                .coalesce(...)\
-                .write...
+            if self.spark.catalog.tableExists(output_table):
+                columns = self.spark.table(output_table).columns
 
-
-            # Borrar la tabla provisional si la hubiéramos creado
-            self.spark.sql("DROP TABLE IF EXISTS tabla_provisional")
+                (
+                    # Answer: Overwrite only some partitions in a partitioned spark Dataset
+                    # https://stackoverflow.com/a/50006527/32697703?stw=2
+                    # La tabla ya existe, la sobreescribimos indicando el modo de sobreescritura dinámico
+                    # sobreescribe las particiones que se encuentran en el DF y deja intactas las demás particiones de la tabla
+                    df_with_next_flight.select(columns)
+                    .coalesce(self.config["output_partitions"])
+                    .write.mode("overwrite")
+                    .option("partitionOverwriteMode", "dynamic")
+                    .insertInto(self.config["output_table"])
+                )
+                logger.info(
+                    f"Tabla {self.config['output_table']} sobreescrita con éxito."
+                )
+            else:
+                (
+                    df_with_next_flight.coalesce(self.config["output_partitions"])
+                    .write.mode("overwrite")
+                    # La tabla no existe, la creamos indicando la clave de partición
+                    .partitionBy("FlightDate")
+                    .saveAsTable(self.config["output_table"])
+                )
+                logger.info(f"Tabla {self.config['output_table']} creada con éxito.")
 
         except Exception as e:
             logger.error(f"No se pudo escribir la tabla del fichero {data_file}")
             raise e
 
+        finally:
+            # Borrar la tabla provisional si la hubiéramos creado
+            self.spark.sql("DROP TABLE IF EXISTS tabla_provisional")
 
-if __name__ == '__main__':
-    spark = SparkSession.builder.getOrCreate()   # sólo si lo ejecutas localmente
-    flujo = ...
-    flujo.procesa_diario(...)
+            # Liberar la caché del DF
+            flights_df.unpersist()
+
+
+if __name__ == "__main__":
+    # spark = SparkSession.builder.getOrCreate()  # sólo si lo ejecutas localmente
+    # flujo = FlujoDiario()
+    # flujo.procesa_diario()
 
     # Recuerda que puedes crear el wheel ejecutando en la línea de comandos: python setup.py bdist_wheel
+    print("Boas from FlujoDiario")
